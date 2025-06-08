@@ -7566,7 +7566,7 @@
           network.timeout(10000);
           network.native(component.proxyLink(url, prox, prox_enc_page), function (html) {
               html = (html || '').replace(/\n/g, '');
-              var iframe = html.match(/<iframe[^>]+src="([^"]+)"[^>]*><\/iframe>/i);
+              var iframe = html.match(/<iframe[^>]+(?:data-src|src)="([^"]+)"[^>]*>/i);
               if (iframe && iframe[1]) {
                   var player_url = component.fixLink(iframe[1], host);
 
