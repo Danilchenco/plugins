@@ -7505,110 +7505,112 @@
       }
     }
 
-    function kinojump(component, _object) {
-      var network = new Lampa.Reguest();
-      var object = _object;
-      var select_title = object.search || object.movie.title;
-      var host = 'https://kinojump.com';
-      var prox = component.proxy('kinojump');
-      var headers = {
-          'User-Agent': Utils.baseUserAgent(),
-          'Referer': host + '/',
-          'Origin': host
-      };
-      var prox_enc = '';
+  function kinojump(component, _object) {
+    var network = new Lampa.Reguest();
+    var object = _object;
+    var select_title = object.search || object.movie.title;
+    var host = 'https://kinojump.club';
+    var prox = component.proxy('kinojump');
+    var headers = {
+        'User-Agent': Utils.baseUserAgent(),
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Referer': host + '/',
+        'Origin': host
+    };
 
-      if (prox) {
-          prox_enc += 'param/Origin=' + encodeURIComponent(host) + '/';
-          prox_enc += 'param/Referer=' + encodeURIComponent(host + '/') + '/';
-          prox_enc += 'param/User-Agent=' + encodeURIComponent(headers['User-Agent']) + '/';
-      }
+    var prox_enc = '';
+    if (prox) {
+        prox_enc += 'param/Origin=' + encodeURIComponent(host) + '/';
+        prox_enc += 'param/Referer=' + encodeURIComponent(host + '/') + '/';
+        prox_enc += 'param/User-Agent=' + encodeURIComponent(headers['User-Agent']) + '/';
+        prox_enc += 'param/Content-Type=' + encodeURIComponent(headers['Content-Type']) + '/';
+    }
 
-      function search(query, onSuccess, onError) {
-          var url = host + '/engine/ajax/search.php';
-          var data = 'q=' + encodeURIComponent(query);
+    function searchKinoJump(query, onSuccess, onError) {
+        var url = host + '/index.php?do=search&subaction=search';
+        var data = 'story=' + encodeURIComponent(query);
 
-          network.clear();
-          network.timeout(10000);
-          network.native(component.proxyLink(url, prox, prox_enc), function (str) {
-              var links = (str || '').match(/<li><a href=.*?<\/li>/g);
-              if (links && links.length) {
-                  var items = links.map(function (l) {
-                      var $l = $(l);
-                      var link = $('a', $l);
-                      var title = link.text().trim();
-                      return {
-                          title: title,
-                          link: link.attr('href') || ''
-                      };
-                  });
-                  onSuccess(items);
-              } else onError();
-          }, function (a, c) {
-              onError();
-          }, data, {
-              dataType: 'text',
-              headers: headers
-          });
-      }
+        network.clear();
+        network.timeout(10000);
+        network.native(component.proxyLink(url, prox, prox_enc), function (html) {
+            var matches = html.match(/<a class="short__link" href="([^"]+)">([^<]+)<\/a>/g);
+            if (matches && matches.length) {
+                var results = matches.map(function (item) {
+                    var href = item.match(/href="([^"]+)"/);
+                    var title = item.match(/>([^<]+)<\/a>/);
+                    return {
+                        title: title ? title[1].trim() : 'Без названия',
+                        link: href ? href[1] : ''
+                    };
+                }).filter(i => i.link);
+                onSuccess(results);
+            } else {
+                onError();
+            }
+        }, onError, data, {
+            dataType: 'text',
+            method: 'POST',
+            headers: headers
+        });
+    }
 
-      function getPage(url) {
-          url = component.fixLink(url, host);
+    function getPage(url) {
+        url = component.fixLink(url, host);
 
-          var prox_enc_page = '';
-          if (prox) {
-              prox_enc_page += 'param/Origin=' + encodeURIComponent(host) + '/';
-              prox_enc_page += 'param/Referer=' + encodeURIComponent(url) + '/';
-              prox_enc_page += 'param/User-Agent=' + encodeURIComponent(headers['User-Agent']) + '/';
-          }
+        var prox_enc_page = '';
+        if (prox) {
+            prox_enc_page += 'param/Origin=' + encodeURIComponent(host) + '/';
+            prox_enc_page += 'param/Referer=' + encodeURIComponent(url) + '/';
+            prox_enc_page += 'param/User-Agent=' + encodeURIComponent(headers['User-Agent']) + '/';
+        }
 
-          network.clear();
-          network.timeout(10000);
-          network.native(component.proxyLink(url, prox, prox_enc_page), function (html) {
-              html = (html || '').replace(/\n/g, '');
-              var iframe = html.match(/<iframe[^>]+(?:data-src|src)="([^"]+)"[^>]*>/i);
-              if (iframe && iframe[1]) {
-                  var player_url = component.fixLink(iframe[1], host);
+        network.clear();
+        network.timeout(10000);
+        network.native(component.proxyLink(url, prox, prox_enc_page), function (html) {
+            html = (html || '').replace(/\n/g, '');
+            var iframe = html.match(/<iframe[^>]+(?:data-src|src)="([^"]+)"[^>]*>/i);
+            if (iframe && iframe[1]) {
+                var player_url = component.fixLink(iframe[1], host);
+                var stream = [{
+                    file: player_url,
+                    quality: 'auto',
+                    title: 'KinoJump',
+                    direct: false,
+                    url: player_url
+                }];
+                component.loading(false);
+                component.append(stream);
+            } else {
+                component.empty('Не найден iframe с плеером');
+            }
+        }, function (a, c) {
+            component.empty(network.errorDecode(a, c));
+        }, false, {
+            dataType: 'text',
+            headers: headers
+        });
+    }
 
-                  var stream = [{
-                      file: player_url,
-                      quality: 'auto',
-                      title: 'KinoJump',
-                      direct: false,
-                      url: player_url
-                  }];
+    this.search = function (_object, kinopoisk_id) {
+        object = _object;
+        select_title = object.search || object.movie.title;
 
-                  component.loading(false);
-                  component.append(stream);
-              } else {
-                  component.empty('Do not find iframe!');
-              }
-          }, function (a, c) {
-              component.empty(network.errorDecode(a, c));
-          }, false, {
-              dataType: 'text',
-              headers: headers
-          });
-      }
+        searchKinoJump(select_title, function (items) {
+            if (items.length) {
+                component.loading(true);
+                getPage(items[0].link);
+            } else {
+                component.emptyForQuery(select_title);
+            }
+        }, function () {
+            component.emptyForQuery(select_title);
+        });
+    };
 
-      this.search = function (_object, kinopoisk_id) {
-          object = _object;
-          select_title = object.search || object.movie.title;
-
-          search(select_title, function (items) {
-              if (items.length) {
-                  component.loading(true);
-                  getPage(items[0].link);
-              } else component.emptyForQuery(select_title);
-          }, function () {
-              component.emptyForQuery(select_title);
-          });
-      };
-
-      this.extendChoice = function () {};
-      this.reset = function () {};
-      this.filter = function () {};
-      this.destroy = function () { network.clear(); };
+    this.extendChoice = function () {};
+    this.reset = function () {};
+    this.filter = function () {};
+    this.destroy = function () { network.clear(); };
   }
 
     function vibix(component, _object) {
