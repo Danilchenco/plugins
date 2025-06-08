@@ -7783,7 +7783,7 @@ function kinojump(component, _object) {
                     e_title = e_title.replace(/\d+/, '').replace(/серия/i, '').trim();
                     filtred.push({
                       title: component.formatEpisodeTitle(season_num, episode_num, e_title),
-                      quality: items[0] && items[0].quality ? items[0].quality + 'p' : '360p ~ 1080p',
+                      quality: items[0] && items[0].quality ? items[0].quality + 'p' : '720p ~ 2160p',
                       info: '',
                       season: season_num,
                       episode: episode_num,
@@ -7799,7 +7799,7 @@ function kinojump(component, _object) {
           var items = extractItems(extract.file);
           filtred.push({
             title: extract.title || extract.comment || select_title,
-            quality: items[0] && items[0].quality ? items[0].quality + 'p' : '360p ~ 1080p',
+            quality: items[0] && items[0].quality ? items[0].quality + 'p' : '720p ~ 2160p',
             info: '',
             media: items,
             subtitles: parseSubs(extract.subtitle)
@@ -8192,7 +8192,7 @@ function kinojump(component, _object) {
                       e_title = e_title.replace(/\d+/, '').replace(/серия/i, '').trim();
                       filtred.push({
                         title: component.formatEpisodeTitle(season_num, episode_num, e_title),
-                        quality: items[0] && items[0].quality ? items[0].quality + 'p' : '360p ~ 1080p',
+                        quality: items[0] && items[0].quality ? items[0].quality + 'p' : '360p ~ 2160p',
                         info: ' / ' + Lampa.Utils.shortText(voice, 50),
                         season: season_num,
                         episode: episode_num,
@@ -12187,7 +12187,7 @@ function kinojump(component, _object) {
     var proxyInitialized = {};
     var proxyWindow = {};
     var proxyCalls = {};
-    var default_balanser = 'lumex2';
+    var default_balanser = 'kinojump';
 
     function component(object) {
       var network = new Lampa.Reguest();
@@ -12309,6 +12309,13 @@ function kinojump(component, _object) {
         imdb: true,
         disabled: disable_dbg
       }, {
+        name: 'kinojump',
+        title: 'KinoJump',
+        source: new kinojump(this, object),
+        search: false,
+        kp: true,
+        imdb: true
+      }, {
         name: 'lumex2',
         title: 'Lumex (Ads)',
         source: new lumex2(this, object),
@@ -12398,13 +12405,6 @@ function kinojump(component, _object) {
         name: 'videoseed',
         title: 'VideoSeed',
         source: new videoseed(this, object),
-        search: false,
-        kp: true,
-        imdb: true
-      }, {
-        name: 'kinojump',
-        title: 'KinoJump',
-        source: new kinojump(this, object),
         search: false,
         kp: true,
         imdb: true
