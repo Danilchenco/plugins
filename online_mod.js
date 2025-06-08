@@ -7509,7 +7509,7 @@
     var network = new Lampa.Reguest();
     var object = _object;
     var select_title = object.search || object.movie.title;
-    var host = 'https://kinojump.club';
+    var host = 'https://kinojump.com';
     var prox = component.proxy('kinojump');
     var headers = {
         'User-Agent': Utils.baseUserAgent(),
