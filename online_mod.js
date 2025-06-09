@@ -7511,12 +7511,17 @@
       var select_title = object.search || object.movie.title;
       var host = 'https://kinojump.com';
       var prox = component.proxy('kinojump');
+      var user_agent = Utils.baseUserAgent();
       var headers = {
-          'User-Agent': Utils.baseUserAgent(),
+          'User-Agent': user_agent,
           'Content-Type': 'application/x-www-form-urlencoded',
           'Referer': host + '/',
           'Origin': host
       };
+
+      var filter_data = {};
+      var filtred = [];
+      var items = [];
 
       var prox_enc = '';
       if (prox) {
@@ -7526,28 +7531,26 @@
           prox_enc += 'param/Content-Type=' + encodeURIComponent(headers['Content-Type']) + '/';
       }
 
-      function searchKinoJump(query, onSuccess, onError) {
+      function searchKinoJump(query, resolve, reject) {
           var url = host + '/index.php?do=search&subaction=search';
           var data = 'story=' + encodeURIComponent(query);
 
           network.clear();
           network.timeout(10000);
           network.native(component.proxyLink(url, prox, prox_enc), function (html) {
-              var matches = html.match(/<h3 class="poster__title">\s*<a href="([^"]+)"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/g);
+              var matches = html.match(/<h3 class=\"poster__title\">\s*<a href=\"([^\"]+)\"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/g);
               if (matches && matches.length) {
                   var results = matches.map(function (item) {
-                      var href = item.match(/href="([^"]+)"/);
+                      var href = item.match(/href=\"([^\"]+)\"/);
                       var title = item.match(/<span[^>]*>([^<]+)<\/span>/);
                       return {
                           title: title ? title[1].trim() : 'Без названия',
                           link: href ? href[1] : ''
                       };
                   }).filter(i => i.link);
-                  onSuccess(results);
-              } else {
-                  onError();
-              }
-          }, onError, data, {
+                  resolve(results);
+              } else reject();
+          }, reject, data, {
               dataType: 'text',
               method: 'POST',
               headers: headers
@@ -7561,24 +7564,16 @@
           if (prox) {
               prox_enc_page += 'param/Origin=' + encodeURIComponent(host) + '/';
               prox_enc_page += 'param/Referer=' + encodeURIComponent(url) + '/';
-              prox_enc_page += 'param/User-Agent=' + encodeURIComponent(headers['User-Agent']) + '/';
+              prox_enc_page += 'param/User-Agent=' + encodeURIComponent(user_agent) + '/';
           }
 
           network.clear();
           network.timeout(10000);
           network.native(component.proxyLink(url, prox, prox_enc_page), function (html) {
               html = (html || '').replace(/\n/g, '');
-              var iframe = html.match(/<iframe[^>]+(?:data-src|src)="([^"]+)"[^>]*>/i);
+              var iframe = html.match(/<iframe[^>]+(?:data-src|src)=\"([^\"]+)\"[^>]*>/i);
               if (iframe && iframe[1]) {
-                  var player_url = component.fixLink(iframe[1], host);
-                  component.loading(false);
-                  component.push({
-                      title: 'KinoJump',
-                      url: player_url,
-                      file: player_url,
-                      quality: 'auto',
-                      direct: false
-                  });
+                  resolveStream(iframe[1]);
               } else {
                   component.empty('Не найден iframe с плеером');
               }
@@ -7590,14 +7585,61 @@
           });
       }
 
+      function resolveStream(url) {
+          network.clear();
+          network.timeout(10000);
+          network.native(url, function (html) {
+              try {
+                  var tracks = html.match(/"file":"(https:[^"]+\.m3u8.*?)"/g) || [];
+
+                  items = tracks.map(function (raw) {
+                      var m = raw.match(/"file":"(https:[^"]+\.m3u8.*?)"/);
+                      var file = m ? m[1].replace(/\\/g, '') : '';
+                      var quality = file.match(/(\d{3,4})p/) || ['auto'];
+                      return {
+                          title: quality[0],
+                          file: file,
+                          quality: quality[0],
+                          info: '',
+                          timeline: '',
+                          direct: true,
+                          on: function (call) { call(); }
+                      };
+                  });
+
+                  append(items);
+                  component.loading(false);
+              } catch (e) {
+                  component.empty('Ошибка парсинга потока');
+              }
+          }, function (a, c) {
+              component.empty(network.errorDecode(a, c));
+          }, false, {
+              dataType: 'text',
+              headers: headers
+          });
+      }
+
+      function append(streams) {
+          filtred = Lampa.Arrays.clone(streams);
+          component.append(filtred);
+      }
+
+      function filter() {
+          var selected = Lampa.Storage.field('online_quality');
+          filtred = selected ? items.filter(function (e) {
+              return e.quality == selected;
+          }) : items;
+      }
+
       this.search = function (_object, kinopoisk_id) {
           object = _object;
           select_title = object.search || object.movie.title;
 
-          searchKinoJump(select_title, function (items) {
-              if (items.length) {
+          searchKinoJump(select_title, function (results) {
+              if (results.length) {
                   component.loading(true);
-                  getPage(items[0].link);
+                  getPage(results[0].link);
               } else {
                   component.emptyForQuery(select_title);
               }
@@ -7606,10 +7648,21 @@
           });
       };
 
-      this.extendChoice = function () {};
-      this.reset = function () {};
-      this.filter = function () {};
-      this.destroy = function () { network.clear(); };
+      this.extendChoice = function () {
+          return filter_data;
+      };
+
+      this.reset = function () {
+          items = [];
+      };
+
+      this.filter = function (type) {
+          filter();
+      };
+
+      this.destroy = function () {
+          network.clear();
+      };
     }
 
     function vibix(component, _object) {
