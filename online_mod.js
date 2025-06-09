@@ -7534,7 +7534,6 @@
           network.timeout(10000);
           network.native(component.proxyLink(url, prox, prox_enc), function (html) {
               var matches = html.match(/<h3 class="poster__title">\s*<a href="([^"]+)"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/g);
-
               if (matches && matches.length) {
                   var results = matches.map(function (item) {
                       var href = item.match(/href="([^"]+)"/);
@@ -7572,15 +7571,14 @@
               var iframe = html.match(/<iframe[^>]+(?:data-src|src)="([^"]+)"[^>]*>/i);
               if (iframe && iframe[1]) {
                   var player_url = component.fixLink(iframe[1], host);
-                  var stream = [{
+                  component.loading(false);
+                  component.push({
+                      title: 'KinoJump',
+                      url: player_url,
                       file: player_url,
                       quality: 'auto',
-                      title: 'KinoJump',
-                      direct: false,
-                      url: player_url
-                  }];
-                  component.loading(false);
-                  component.append(stream);
+                      direct: false
+                  });
               } else {
                   component.empty('Не найден iframe с плеером');
               }
