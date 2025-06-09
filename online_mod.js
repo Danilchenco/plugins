@@ -7533,11 +7533,12 @@
           network.clear();
           network.timeout(10000);
           network.native(component.proxyLink(url, prox, prox_enc), function (html) {
-              var matches = html.match(/<div class=\"short__title\">\s*<a href=\"([^\"]+)\"[^>]*>([^<]+)<\/a>/g);
+              var matches = html.match(/<h3 class="poster__title">\s*<a href="([^"]+)"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/g);
+
               if (matches && matches.length) {
                   var results = matches.map(function (item) {
-                      var href = item.match(/href=\"([^\"]+)\"/);
-                      var title = item.match(/>([^<]+)<\/a>/);
+                      var href = item.match(/href="([^"]+)"/);
+                      var title = item.match(/<span[^>]*>([^<]+)<\/span>/);
                       return {
                           title: title ? title[1].trim() : 'Без названия',
                           link: href ? href[1] : ''
@@ -7568,7 +7569,7 @@
           network.timeout(10000);
           network.native(component.proxyLink(url, prox, prox_enc_page), function (html) {
               html = (html || '').replace(/\n/g, '');
-              var iframe = html.match(/<iframe[^>]+(?:data-src|src)=\"([^\"]+)\"[^>]*>/i);
+              var iframe = html.match(/<iframe[^>]+(?:data-src|src)="([^"]+)"[^>]*>/i);
               if (iframe && iframe[1]) {
                   var player_url = component.fixLink(iframe[1], host);
                   var stream = [{
