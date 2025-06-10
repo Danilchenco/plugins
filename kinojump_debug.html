@@ -35,6 +35,7 @@
         field: () => null,
         get: () => '',
         set: () => {},
+        cache: () => {},
         listener: {
           follow: () => {}
         }
@@ -112,6 +113,7 @@
     function fakeComponent() {
       return {
         proxy: () => '',
+        reset: () => {},
         proxyLink: (url) => url,
         fixLink: (url) => url.startsWith('http') ? url : 'https://kinojump.com' + url,
         append: (items) => log(['✅ append', items]),
