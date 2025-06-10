@@ -7128,11 +7128,11 @@
 
             resolve(results);
           } else {
-            console.warn('🔍 Ничего не найдено на странице');
+            console.warn('🔍 Ничего не найдено на странице'); // DEBUG
             reject();
           }
         }, function (err) {
-          console.error('❌ Ошибка запроса:', err);
+          console.error('❌ Ошибка запроса:', err); // DEBUG
           reject();
         }, false, {
           method: 'GET',
@@ -7164,24 +7164,34 @@
             return;
           }
 
+          const qualityFilter = Lampa.Storage.field('online_quality') || 'auto';
+
           const streams = blockMatches.map(block => {
             const nameMatch = block.match(/data-content="([^"]+)"/);
             const iframeMatch = block.match(/<iframe[^>]+(?:data-src|src)="([^"]+)"/i);
+            const labelMatch = block.match(/<span[^>]*>([^<]+)<\/span>/i);
 
             const url = iframeMatch ? iframeMatch[1] : null;
+            const label = labelMatch ? labelMatch[1].trim() : '';
             const name = nameMatch ? nameMatch[1].toUpperCase() : 'PLAYER';
 
-            return url ? {
+            if (!url) return null;
+
+            const fullTitle = label ? `${label} (${name})` : name;
+
+            return {
               file: url.startsWith('http') ? url : component.fixLink(url),
-              title: name,
+              title: fullTitle,
               quality: 'auto',
-              info: '',
+              info: label || '',
               timeline: '',
               direct: true,
               subtitles: [],
-              on: function (call) { call(); }
-            } : null;
+              on: function (call) { resolveStream(this.file); call(); } // DEBUG: streaming resolve
+            };
           }).filter(Boolean);
+
+          console.log('🎯 Найденные потоки:', streams); // DEBUG
 
           if (streams.length === 0) {
             component.empty('❌ iframe не распарсились');
@@ -7206,11 +7216,10 @@
           try {
             const tracks = html.match(/"file":"(https:[^\"]+\.m3u8.*?)"/g) || [];
 
-            items = tracks.map(function (raw) {
+            const parsed = tracks.map(function (raw, idx) {
               const m = raw.match(/"file":"(https:[^\"]+\.m3u8.*?)"/);
               const file = m ? m[1].replace(/\\/g, '') : '';
               const quality = file.match(/(\d{3,4})p/) || ['auto'];
-
               return {
                 title: quality[0],
                 file: file,
@@ -7223,9 +7232,11 @@
               };
             });
 
-            append(items);
+            console.log('🎞 Потоки из iframe:', parsed); // DEBUG
+            append(parsed);
             component.loading(false);
           } catch (e) {
+            console.error('❌ Ошибка разбора потока', e); // DEBUG
             component.empty('Ошибка парсинга потока');
           }
         }, function (a, c) {
@@ -7237,14 +7248,19 @@
       }
 
       function append(items) {
+        if (!items || !items.length) {
+          component.empty('❌ Нет валидных потоков'); // DEBUG
+          return;
+        }
+
         component.reset();
         var viewed = Lampa.Storage.cache('online_view', 5000, []);
 
         items.forEach(function (element) {
-          var hash = Lampa.Utils.hash(element.season ? [element.season, element.season > 10 ? ':' : '', element.episode, object.movie.original_title].join('') : object.movie.original_title);
+          var hash = Lampa.Utils.hash(element.file + select_title);
           var view = Lampa.Timeline.view(hash);
           var item = Lampa.Template.get('online_mod', element);
-          var hash_file = Lampa.Utils.hash(element.season ? [element.season, element.season > 10 ? ':' : '', element.episode, object.movie.original_title].join('') : object.movie.original_title + element.title);
+          var hash_file = Lampa.Utils.hash(select_title + element.title);
 
           element.timeline = view;
           item.append(Lampa.Timeline.render(view));
@@ -7260,28 +7276,21 @@
           item.on('hover:enter', function () {
             if (object.movie.id) Lampa.Favorite.add('history', object.movie, 100);
 
-            var extra = element;
-            if (extra.file) {
-              var playlist = [];
-              var first = {
-                url: component.getDefaultQuality(extra.quality, extra.file),
-                quality: component.renameQualityMap(extra.quality),
-                subtitles: element.subtitles,
-                timeline: element.timeline,
-                title: element.season ? element.title : select_title + (element.title == select_title ? '' : ' / ' + element.title)
-              };
+            const first = {
+              url: element.file,
+              quality: component.renameQualityMap(element.quality),
+              subtitles: element.subtitles,
+              timeline: element.timeline,
+              title: element.title
+            };
 
-              playlist.push(first);
-              Lampa.Player.play(first);
-              Lampa.Player.playlist(playlist);
+            Lampa.Player.play(first);
+            Lampa.Player.playlist([first]);
 
-              if (viewed.indexOf(hash_file) == -1) {
-                viewed.push(hash_file);
-                item.append('<div class="torrent-item__viewed">' + Lampa.Template.get('icon_star', {}, true) + '</div>');
-                Lampa.Storage.set('online_view', viewed);
-              }
-            } else {
-              Lampa.Noty.show(Lampa.Lang.translate('online_mod_nolink'));
+            if (viewed.indexOf(hash_file) == -1) {
+              viewed.push(hash_file);
+              item.append('<div class="torrent-item__viewed">' + Lampa.Template.get('icon_star', {}, true) + '</div>');
+              Lampa.Storage.set('online_view', viewed);
             }
           });
 
