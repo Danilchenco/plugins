@@ -71,10 +71,18 @@
       Listener: {
         follow: () => {}
       },
+      Timeline: {
+        render: () => {}
+      },
+      Template: {
+        get: () => {},
+        add: () => {}
+      },
       Reguest: function () {
         return {
           clear: () => {},
           timeout: () => {},
+          contextmenu: () => {},
           errorDecode: function (a, c) {
             return `Ошибка запроса: ${c || a}`;
           },

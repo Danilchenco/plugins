@@ -7095,17 +7095,9 @@
         'Origin': host
       };
 
+      var items = [];
       var filter_data = {};
       var filtred = [];
-      var items = [];
-
-      var prox_enc = '';
-      if (prox) {
-        prox_enc += 'param/Origin=' + encodeURIComponent(host) + '/';
-        prox_enc += 'param/Referer=' + encodeURIComponent(host + '/') + '/';
-        prox_enc += 'param/User-Agent=' + encodeURIComponent(headers['User-Agent']) + '/';
-        prox_enc += 'param/Content-Type=' + encodeURIComponent(headers['Content-Type']) + '/';
-      }
 
       function searchKinoJump(query, resolve, reject) {
         const encodedQuery = encodeURIComponent(query);
@@ -7113,7 +7105,7 @@
 
         network.clear();
         network.timeout(10000);
-        network.native(component.proxyLink(url, prox, prox_enc), function (html) {
+        network.native(url, function (html) {
           const matches = html.match(/<div class="poster grid-item[^>]*>[\s\S]*?<a href="([^"]+)"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/g);
 
           if (matches && matches.length) {
@@ -7127,14 +7119,8 @@
             }).filter(i => i.link);
 
             resolve(results);
-          } else {
-            console.warn('🔍 Ничего не найдено на странице'); // DEBUG
-            reject();
-          }
-        }, function (err) {
-          console.error('❌ Ошибка запроса:', err); // DEBUG
-          reject();
-        }, false, {
+          } else reject();
+        }, reject, false, {
           method: 'GET',
           dataType: 'text',
           headers: headers
@@ -7143,105 +7129,75 @@
 
       function getPage(url) {
         const pageUrl = component.fixLink(url);
-        const pageHeaders = {
-          'User-Agent': user_agent,
-          'Referer': host + '/',
-          'Origin': host
-        };
-
-        const prox_enc_page = prox ? (
-          'param/Origin=' + encodeURIComponent(host) + '/' +
-          'param/Referer=' + encodeURIComponent(pageUrl) + '/' +
-          'param/User-Agent=' + encodeURIComponent(pageHeaders['User-Agent']) + '/'
-        ) : '';
 
         network.clear();
         network.timeout(10000);
-        network.native(component.proxyLink(pageUrl, prox, prox_enc_page), function (html) {
-          const blockMatches = html.match(/<div class="tabs-block__content[^>]*>[\s\S]*?<iframe[^>]+><\/iframe>/g);
-          if (!blockMatches || blockMatches.length === 0) {
-            component.empty('❌ Плееры не найдены');
+        network.native(pageUrl, function (html) {
+          const fileListMatch = html.match(/const fileList = JSON\.parse\('(.+?)'\);/);
+
+          if (!fileListMatch || !fileListMatch[1]) {
+            component.empty('❌ Не найден файл fileList');
             return;
           }
 
-          const qualityFilter = Lampa.Storage.field('online_quality') || 'auto';
+          let fileList;
+          try {
+            const json = fileListMatch[1].replace(/\\"/g, '"');
+            fileList = JSON.parse(json);
+          } catch (e) {
+            console.error('❌ Ошибка парсинга fileList', e);
+            component.empty('Ошибка парсинга fileList');
+            return;
+          }
 
-          const streams = blockMatches.map(block => {
-            const nameMatch = block.match(/data-content="([^"]+)"/);
-            const iframeMatch = block.match(/<iframe[^>]+(?:data-src|src)="([^"]+)"/i);
-            const labelMatch = block.match(/<span[^>]*>([^<]+)<\/span>/i);
+          const voices = [];
+          const versions = [];
 
-            const url = iframeMatch ? iframeMatch[1] : null;
-            const label = labelMatch ? labelMatch[1].trim() : '';
-            const name = nameMatch ? nameMatch[1].toUpperCase() : 'PLAYER';
+          for (let version in fileList.all) {
+            const voiceList = fileList.all[version];
+            for (let voice in voiceList) {
+              const qualities = voiceList[voice];
+              for (let quality in qualities) {
+                const entry = qualities[quality];
+                if (!entry.id) continue;
+                voices.push({
+                  voice: entry.translation,
+                  quality: entry.quality,
+                  id: entry.id,
+                  url: `https://to.reactglide.org/manifest/${entry.id}`,
+                  title: `${entry.translation} (${entry.quality}${entry.uhd ? ', 4K' : ''})`
+                });
+              }
+            }
+          }
 
-            if (!url) return null;
+          const qualityFilter = Lampa.Storage.field('online_quality');
 
-            const fullTitle = label ? `${label} (${name})` : name;
-
-            return {
-              file: url.startsWith('http') ? url : component.fixLink(url),
-              title: fullTitle,
-              quality: 'auto',
-              info: label || '',
+          items = voices
+            .filter(e => !qualityFilter || e.quality.includes(qualityFilter))
+            .map(e => ({
+              file: e.url,
+              title: e.title,
+              quality: e.quality,
+              info: e.voice,
               timeline: '',
               direct: true,
               subtitles: [],
-              on: function (call) { resolveStream(this.file); call(); } // DEBUG: streaming resolve
-            };
-          }).filter(Boolean);
+              on: function (call) {
+                call(); // если нужно вызвать resolveStream(this.file);
+              }
+            }));
 
-          console.log('🎯 Найденные потоки:', streams); // DEBUG
-
-          if (streams.length === 0) {
-            component.empty('❌ iframe не распарсились');
+          if (items.length === 0) {
+            component.empty('❌ Потоки не найдены');
           } else {
-            items = streams;
+            append(items);
             component.loading(false);
-            append(streams);
           }
         }, function (a, c) {
           component.empty(network.errorDecode(a, c));
         }, false, {
           method: 'GET',
-          dataType: 'text',
-          headers: pageHeaders
-        });
-      }
-
-      function resolveStream(url) {
-        network.clear();
-        network.timeout(10000);
-        network.native(url, function (html) {
-          try {
-            const tracks = html.match(/"file":"(https:[^\"]+\.m3u8.*?)"/g) || [];
-
-            const parsed = tracks.map(function (raw, idx) {
-              const m = raw.match(/"file":"(https:[^\"]+\.m3u8.*?)"/);
-              const file = m ? m[1].replace(/\\/g, '') : '';
-              const quality = file.match(/(\d{3,4})p/) || ['auto'];
-              return {
-                title: quality[0],
-                file: file,
-                quality: quality[0],
-                info: '',
-                timeline: '',
-                direct: true,
-                subtitles: [],
-                on: function (call) { call(); }
-              };
-            });
-
-            console.log('🎞 Потоки из iframe:', parsed); // DEBUG
-            append(parsed);
-            component.loading(false);
-          } catch (e) {
-            console.error('❌ Ошибка разбора потока', e); // DEBUG
-            component.empty('Ошибка парсинга потока');
-          }
-        }, function (a, c) {
-          component.empty(network.errorDecode(a, c));
-        }, false, {
           dataType: 'text',
           headers: headers
         });
@@ -7249,7 +7205,7 @@
 
       function append(items) {
         if (!items || !items.length) {
-          component.empty('❌ Нет валидных потоков'); // DEBUG
+          component.empty('❌ Нет валидных потоков');
           return;
         }
 
@@ -7287,7 +7243,7 @@
             Lampa.Player.play(first);
             Lampa.Player.playlist([first]);
 
-            if (viewed.indexOf(hash_file) == -1) {
+            if (viewed.indexOf(hash_file) === -1) {
               viewed.push(hash_file);
               item.append('<div class="torrent-item__viewed">' + Lampa.Template.get('icon_star', {}, true) + '</div>');
               Lampa.Storage.set('online_view', viewed);
@@ -7305,14 +7261,8 @@
             }
           });
         });
-        component.start(true);
-      }
 
-      function filter() {
-        var selected = Lampa.Storage.field('online_quality');
-        filtred = selected ? items.filter(function (e) {
-          return e.quality == selected;
-        }) : items;
+        component.start(true);
       }
 
       this.search = function (_object, kinopoisk_id) {
@@ -7340,7 +7290,8 @@
       };
 
       this.filter = function (type) {
-        filter();
+        var selected = Lampa.Storage.field('online_quality');
+        filtred = selected ? items.filter(e => e.quality == selected) : items;
       };
 
       this.destroy = function () {
@@ -14608,6 +14559,8 @@
         proxy: () => '',
         reset: () => {},
         proxyLink: (url) => url,
+        contextmenu: () => {},
+        start: () => {},
         fixLink: (url) => url.startsWith('http') ? url : 'https://kinojump.com' + url,
         append: (items) => console.log('append', items),
         push: (item) => console.log('push', item),
