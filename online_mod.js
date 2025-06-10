@@ -7566,31 +7566,57 @@
       }
 
       function getPage(url) {
-          url = component.fixLink(url, host);
+        const pageUrl = component.fixLink(url);
+        const headers = {
+          'User-Agent': Utils.baseUserAgent(),
+          'Referer': host + '/',
+          'Origin': host
+        };
 
-          var prox_enc_page = '';
-          if (prox) {
-              prox_enc_page += 'param/Origin=' + encodeURIComponent(host) + '/';
-              prox_enc_page += 'param/Referer=' + encodeURIComponent(url) + '/';
-              prox_enc_page += 'param/User-Agent=' + encodeURIComponent(user_agent) + '/';
+        const prox_enc_page = prox ? (
+          'param/Origin=' + encodeURIComponent(host) + '/' +
+          'param/Referer=' + encodeURIComponent(pageUrl) + '/' +
+          'param/User-Agent=' + encodeURIComponent(headers['User-Agent']) + '/'
+        ) : '';
+
+        network.clear();
+        network.timeout(10000);
+
+        network.native(component.proxyLink(pageUrl, prox, prox_enc_page), function (html) {
+          const blockMatches = html.match(/<div class="tabs-block__content[^>]+>[\s\S]*?<iframe[^>]+><\/iframe>/g);
+          if (!blockMatches || blockMatches.length === 0) {
+            component.empty('❌ Плееры не найдены');
+            return;
           }
 
-          network.clear();
-          network.timeout(10000);
-          network.native(component.proxyLink(url, prox, prox_enc_page), function (html) {
-              html = (html || '').replace(/\n/g, '');
-              var iframe = html.match(/<iframe[^>]+(?:data-src|src)=\"([^\"]+)\"[^>]*>/i);
-              if (iframe && iframe[1]) {
-                  resolveStream(iframe[1]);
-              } else {
-                  component.empty('Не найден iframe с плеером');
-              }
-          }, function (a, c) {
-              component.empty(network.errorDecode(a, c));
-          }, false, {
-              dataType: 'text',
-              headers: headers
-          });
+          const streams = blockMatches.map(block => {
+            const nameMatch = block.match(/data-content="([^"]+)"/);
+            const iframeMatch = block.match(/<iframe[^>]+(?:data-src|src)="([^"]+)"/i);
+
+            const url = iframeMatch ? iframeMatch[1] : null;
+            const name = nameMatch ? nameMatch[1].toUpperCase() : 'PLAYER';
+
+            return url ? {
+              file: url.startsWith('http') ? url : component.fixLink(url),
+              title: name,
+              quality: 'auto',
+              info: ''
+            } : null;
+          }).filter(Boolean);
+
+          if (streams.length === 0) {
+            component.empty('❌ iframe не распарсились');
+          } else {
+            component.loading(false);
+            append(streams);
+          }
+        }, function (a, c) {
+          component.empty(network.errorDecode(a, c));
+        }, false, {
+          method: 'GET',
+          dataType: 'text',
+          headers: headers
+        });
       }
 
       function resolveStream(url) {

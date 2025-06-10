@@ -81,7 +81,7 @@
             fetch(url, {
               method: opt?.method || (data ? 'POST' : 'GET'),
               headers: opt?.headers || {},
-              body: opt?.method === 'GET' ? undefined : data
+              body: (opt?.method === 'GET' || data === false) ? undefined : data
             }).then(r => {
               if (opt?.dataType === 'text') return r.text();
               if (opt?.dataType === 'json') return r.json();
