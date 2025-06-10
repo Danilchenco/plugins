@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>KinoJump Debug</title>
+
+  <!-- Подключение jQuery -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+  <!-- Гарантия hash -->
+  <script>
+    if (!window.location) window.location = {};
+    if (!('hash' in window.location)) Object.defineProperty(window.location, 'hash', {
+      get: () => '#debug'
+    });
+  </script>
+
+  <!-- Подделка Lampa API -->
+  <script>
+    window.Lampa = {
+      Platform: {
+        sources: [],
+        sourceAdd: function (id, instance) {
+          this.sources.push({ id, call: instance });
+          console.log(`📦 Источник зарегистрирован: ${id}`);
+        },
+        is: () => false
+      },
+      Settings: {
+        listener: {
+          follow: () => {}
+        }
+      },
+      Storage: {
+        field: () => null,
+        get: () => '',
+        set: () => {},
+        listener: {
+          follow: () => {}
+        }
+      },
+      Arrays: {
+        clone: arr => JSON.parse(JSON.stringify(arr))
+      },
+      Utils: {
+        hash: function (str) {
+          var hash = 0, i, chr;
+          if (str.length === 0) return '';
+          for (i = 0; i < str.length; i++) {
+            chr   = str.charCodeAt(i);
+            hash  = ((hash << 5) - hash) + chr;
+            hash |= 0;
+          }
+          return String(hash);
+        }
+      },
+      Params: {
+        trigger: () => {},
+        select: () => {}
+      },
+      Component: {
+        add: () => {}
+      },
+      Template: {
+        add: () => {}
+      },
+      Manifest: {
+        plugins: () => {}
+      },
+      Listener: {
+        follow: () => {}
+      },
+      Reguest: function () {
+        return {
+          clear: () => {},
+          timeout: () => {},
+          errorDecode: function (a, c) {
+            return `Ошибка запроса: ${c || a}`;
+          },
+          native: function (url, ok, fail, data, opt) {
+            fetch(url, {
+              method: opt?.method || (data ? 'POST' : 'GET'),
+              headers: opt?.headers || {},
+              body: opt?.method === 'GET' ? undefined : data
+            }).then(r => {
+              if (opt?.dataType === 'text') return r.text();
+              if (opt?.dataType === 'json') return r.json();
+              return r.text();
+            }).then(ok).catch(fail);
+          }
+        };
+      }
+    };
+  </script>
+
+  <!-- Подключение локального плагина -->
+  <script src="online_mod.js"></script>
+</head>
+<body>
+  <h1>KinoJump Debug</h1>
+  <input type="text" id="query" value="Властелин колец: Братство Кольца" style="width: 300px;">
+  <button onclick="start()">Запустить</button>
+
+  <pre id="log" style="white-space: pre-wrap; margin-top: 20px;"></pre>
+
+  <script>
+    function log(msg) {
+      const out = document.getElementById('log');
+      out.textContent += (typeof msg === 'string' ? msg : JSON.stringify(msg, null, 2)) + '\n\n';
+    }
+
+    function fakeComponent() {
+      return {
+        proxy: () => '',
+        proxyLink: (url) => url,
+        fixLink: (url) => url.startsWith('http') ? url : 'https://kinojump.com' + url,
+        append: (items) => log(['✅ append', items]),
+        push: (item) => log(['✅ push', item]),
+        loading: (bool) => log(`🔄 Загрузка: ${bool}`),
+        empty: (msg) => log(`❌ Пусто: ${msg}`),
+        emptyForQuery: (title) => log(`❌ Нет результатов для: ${title}`)
+      };
+    }
+
+    function start() {
+      document.getElementById('log').textContent = '▶ Старт отладки...\n\n';
+
+      setTimeout(() => {
+        const query = document.getElementById('query').value.trim();
+        const source = Lampa.Platform.sources.find(s => s.id === 'kinojump');
+
+        if (!source || !source.call) {
+          log('❌ Источник kinojump не найден');
+          return;
+        }
+
+        const kino = source.call;
+        if (typeof kino.search !== 'function') {
+          log('❌ Метод search не найден');
+          return;
+        }
+
+        try {
+          kino.search({ search: query, movie: { title: query } }, null);
+        } catch (e) {
+          log('🔥 Ошибка при вызове search: ' + e.message);
+        }
+      }, 200);
+    }
+  </script>
+</body>
+</html>

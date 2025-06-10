@@ -7532,27 +7532,35 @@
       }
 
       function searchKinoJump(query, resolve, reject) {
-          var url = host + '/index.php?do=search&subaction=search';
-          var data = 'story=' + encodeURIComponent(query);
+          const encodedQuery = encodeURIComponent(query);
+          const url = `${host}/index.php?do=search&subaction=search&search_start=0&full_search=0&story=${encodedQuery}`;
 
           network.clear();
           network.timeout(10000);
           network.native(component.proxyLink(url, prox, prox_enc), function (html) {
-              var matches = html.match(/<h3 class=\"poster__title\">\s*<a href=\"([^\"]+)\"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/g);
+              const matches = html.match(/<div class="poster grid-item[^>]*>[\s\S]*?<a href="([^"]+)"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/g);
+
               if (matches && matches.length) {
-                  var results = matches.map(function (item) {
-                      var href = item.match(/href=\"([^\"]+)\"/);
-                      var title = item.match(/<span[^>]*>([^<]+)<\/span>/);
+                  const results = matches.map(item => {
+                      const href = item.match(/href="([^"]+)"/);
+                      const title = item.match(/<span[^>]*>([^<]+)<\/span>/);
                       return {
                           title: title ? title[1].trim() : 'Без названия',
                           link: href ? href[1] : ''
                       };
                   }).filter(i => i.link);
+
                   resolve(results);
-              } else reject();
-          }, reject, data, {
+              } else {
+                  console.warn('🔍 Ничего не найдено на странице');
+                  reject();
+              }
+          }, function (err) {
+              console.error('❌ Ошибка запроса:', err);
+              reject();
+          }, false, {
+              method: 'GET',
               dataType: 'text',
-              method: 'POST',
               headers: headers
           });
       }
@@ -12068,7 +12076,7 @@
         name: 'kinojump',
         title: 'KinoJump',
         source: new kinojump(this, object),
-        search: false,
+        search: true,
         kp: true,
         imdb: true
       }, {
@@ -14918,5 +14926,28 @@
         });
       }
     });
+
+    if (typeof window !== 'undefined' && window.location.href.includes('kinojump_debug.html')) {
+      console.log('🔧 Режим отладки: регистрируем kinojump');
+      const fakeComponent = {
+        proxy: () => '',
+        proxyLink: (url) => url,
+        fixLink: (url) => url.startsWith('http') ? url : 'https://kinojump.com' + url,
+        append: (items) => console.log('append', items),
+        push: (item) => console.log('push', item),
+        loading: (bool) => console.log('loading', bool),
+        empty: (msg) => console.log('empty', msg),
+        emptyForQuery: (title) => console.log('no results for', title)
+      };
+
+      const instance = new kinojump(fakeComponent, {
+        search: 'Властелин колец',
+        movie: { title: 'Властелин колец', original_title: 'The Lord of the Rings' }
+      });
+
+      if (window.Lampa?.Platform?.sourceAdd) {
+        Lampa.Platform.sourceAdd('kinojump', instance);
+      }
+    }
 
 })();
