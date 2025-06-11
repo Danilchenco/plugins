@@ -3,11 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>KinoJump Debug</title>
-
-  <!-- Подключение jQuery -->
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 
-  <!-- Гарантия hash -->
   <script>
     if (!window.location) window.location = {};
     if (!('hash' in window.location)) Object.defineProperty(window.location, 'hash', {
@@ -15,69 +12,60 @@
     });
   </script>
 
-  <!-- Подделка Lampa API -->
   <script>
     window.Lampa = {
       Platform: {
         sources: [],
         sourceAdd: function (id, instance) {
-          this.sources.push({ id, call: instance });
+          this.sources.push({ id, call: instance });  // ← исправлено
           console.log(`📦 Источник зарегистрирован: ${id}`);
         },
         is: () => false
       },
       Settings: {
-        listener: {
-          follow: () => {}
-        }
+        listener: { follow: () => {} }
       },
       Storage: {
         field: () => null,
         get: () => '',
         set: () => {},
-        cache: () => {},
-        listener: {
-          follow: () => {}
-        }
+        cache: () => [],
+        listener: { follow: () => {} }
       },
       Arrays: {
         clone: arr => JSON.parse(JSON.stringify(arr))
       },
       Utils: {
         hash: function (str) {
-          var hash = 0, i, chr;
-          if (str.length === 0) return '';
-          for (i = 0; i < str.length; i++) {
-            chr   = str.charCodeAt(i);
-            hash  = ((hash << 5) - hash) + chr;
+          if (!str) return '';
+          let hash = 0;
+          for (let i = 0; i < str.length; i++) {
+            const chr = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + chr;
             hash |= 0;
           }
           return String(hash);
         }
       },
-      Params: {
-        trigger: () => {},
-        select: () => {}
-      },
-      Component: {
-        add: () => {}
-      },
+      Params: { trigger: () => {}, select: () => {} },
+      Component: { add: () => {} },
       Template: {
+        get: () => $('<div>template</div>'),
         add: () => {}
       },
-      Manifest: {
-        plugins: () => {}
-      },
-      Listener: {
-        follow: () => {}
-      },
+      Manifest: { plugins: () => {} },
+      Listener: { follow: () => {} },
       Timeline: {
-        render: () => {}
+        render: () => $('<div class="timeline">[timeline]</div>'),
+        details: () => $('<span>[details]</span>'),
+        view: () => ({})
       },
-      Template: {
-        get: () => {},
-        add: () => {}
+      Favorite: { add: () => {} },
+      Player: {
+        play: (item) => console.log('▶️ play', item),
+        playlist: (items) => console.log('📃 playlist', items)
       },
+      Noty: { show: (msg) => alert(msg) },
       Reguest: function () {
         return {
           clear: () => {},
@@ -100,9 +88,24 @@
         };
       }
     };
+
+    window.component = {
+      proxy: () => '',
+      reset: () => {},
+      proxyLink: (url) => url,
+      fixLink: (url) => (url && url.startsWith('http') ? url : 'https://kinojump.com' + url),
+      append: (items) => log(['✅ append', items]),
+      push: (item) => log(['✅ push', item]),
+      loading: (bool) => log(`🔄 Загрузка: ${bool}`),
+      empty: (msg) => log(`❌ Пусто: ${msg}`),
+      emptyForQuery: (title) => log(`❌ Нет результатов для: ${title}`),
+      contextmenu: () => {},
+      getDefaultQuality: (q, url) => url,
+      renameQualityMap: (q) => q
+    };
   </script>
 
-  <!-- Подключение локального плагина -->
+  <!-- Подключение плагина kinojump -->
   <script src="online_mod.js"></script>
 </head>
 <body>
@@ -118,40 +121,26 @@
       out.textContent += (typeof msg === 'string' ? msg : JSON.stringify(msg, null, 2)) + '\n\n';
     }
 
-    function fakeComponent() {
-      return {
-        proxy: () => '',
-        reset: () => {},
-        proxyLink: (url) => url,
-        fixLink: (url) => url.startsWith('http') ? url : 'https://kinojump.com' + url,
-        append: (items) => log(['✅ append', items]),
-        push: (item) => log(['✅ push', item]),
-        loading: (bool) => log(`🔄 Загрузка: ${bool}`),
-        empty: (msg) => log(`❌ Пусто: ${msg}`),
-        emptyForQuery: (title) => log(`❌ Нет результатов для: ${title}`)
-      };
-    }
-
     function start() {
       document.getElementById('log').textContent = '▶ Старт отладки...\n\n';
 
       setTimeout(() => {
-        const query = document.getElementById('query').value.trim();
-        const source = Lampa.Platform.sources.find(s => s.id === 'kinojump');
-
-        if (!source || !source.call) {
-          log('❌ Источник kinojump не найден');
-          return;
-        }
-
-        const kino = source.call;
-        if (typeof kino.search !== 'function') {
-          log('❌ Метод search не найден');
-          return;
-        }
-
         try {
-          kino.search({ search: query, movie: { title: query } }, null);
+          const query = document.getElementById('query').value.trim();
+          const source = Lampa.Platform.sources.find(s => s.id === 'kinojump');
+
+          if (!source || !source.call) {
+            log('❌ Источник kinojump не найден');
+            return;
+          }
+
+          const plugin = source.call();
+          if (typeof plugin.search !== 'function') {
+            log('❌ Метод search не найден');
+            return;
+          }
+
+          plugin.search({ search: query, movie: { title: query, original_title: query, id: 1 } }, null);
         } catch (e) {
           log('🔥 Ошибка при вызове search: ' + e.message);
         }

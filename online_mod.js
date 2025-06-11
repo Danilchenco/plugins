@@ -7085,138 +7085,116 @@
       var object = _object;
       var select_title = object.search || object.movie.title;
       var host = 'https://kinojump.com';
-      var prox = component.proxy('kinojump');
-      var user_agent = Utils.baseUserAgent();
-
-      var headers = {
-        'User-Agent': user_agent,
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Referer': host + '/',
-        'Origin': host
-      };
-
       var items = [];
-      var filter_data = {};
-      var filtred = [];
 
       function searchKinoJump(query, resolve, reject) {
-        const encodedQuery = encodeURIComponent(query);
-        const url = `${host}/index.php?do=search&subaction=search&search_start=0&full_search=0&story=${encodedQuery}`;
+        const encoded = encodeURIComponent(query);
+        const url = `${host}/index.php?do=search&subaction=search&story=${encoded}`;
 
         network.clear();
         network.timeout(10000);
-        network.native(url, function (html) {
-          const matches = html.match(/<div class="poster grid-item[^>]*>[\s\S]*?<a href="([^"]+)"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/g);
 
-          if (matches && matches.length) {
-            const results = matches.map(item => {
-              const href = item.match(/href="([^"]+)"/);
-              const title = item.match(/<span[^>]*>([^<]+)<\/span>/);
-              return {
-                title: title ? title[1].trim() : 'Без названия',
-                link: href ? href[1] : ''
-              };
-            }).filter(i => i.link);
-
+        network.native(url, html => {
+          const matches = [...html.matchAll(/<div class="poster grid-item[^>]*>[\s\S]*?<a href="([^"]+)"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/g)];
+          if (matches.length) {
+            const results = matches.map(m => ({
+              title: m[2].trim(),
+              link: m[1]
+            }));
             resolve(results);
-          } else reject();
-        }, reject, false, {
-          method: 'GET',
-          dataType: 'text',
-          headers: headers
-        });
+          } else {
+            reject();
+          }
+        }, err => {
+          console.error('❌ Ошибка запроса поиска:', err);
+          reject();
+        }, false, { method: 'GET', dataType: 'text' });
       }
 
-      function getPage(url) {
-        const pageUrl = component.fixLink(url);
+      function sanitizeMakePlayerJson(raw) {
+        return raw
+          .replace(/^makePlayer\s*\(/, '')        // убрать makePlayer(
+          .replace(/\)\s*;?$/, '')                // убрать закрывающую скобку
+          .replace(/([,{]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":') // ключи в кавычки
+          .replace(/'/g, '"')                     // одинарные кавычки в двойные
+          .replace(/,\s*([}\]])/g, '$1')          // лишние запятые перед } или ]
+          .replace(/:\s*(\d+)\s*\*\s*(\d+)/g, (_, a, b) => `: ${parseInt(a) * parseInt(b)}`); // выражения типа 300*1000
+      }
 
-        network.clear();
-        network.timeout(10000);
-        network.native(pageUrl, function (html) {
-          const fileListMatch = html.match(/const fileList = JSON\.parse\('(.+?)'\);/);
+      function getPage(relativeUrl) {
+        const fullUrl = component.fixLink(relativeUrl);
 
-          if (!fileListMatch || !fileListMatch[1]) {
-            component.empty('❌ Не найден файл fileList');
+        network.native(fullUrl, html => {
+          const iframes = [...html.matchAll(/<iframe[^>]+(?:src|data-src)="([^"]+)"/g)].map(m => m[1]);
+
+          if (!iframes.length) {
+            component.empty('❌ iframe не найдены');
             return;
           }
 
-          let fileList;
-          try {
-            const json = fileListMatch[1].replace(/\\"/g, '"');
-            fileList = JSON.parse(json);
-          } catch (e) {
-            console.error('❌ Ошибка парсинга fileList', e);
-            component.empty('Ошибка парсинга fileList');
-            return;
-          }
+          let pending = iframes.length;
+          let collected = [];
 
-          const voices = [];
-          const versions = [];
-
-          for (let version in fileList.all) {
-            const voiceList = fileList.all[version];
-            for (let voice in voiceList) {
-              const qualities = voiceList[voice];
-              for (let quality in qualities) {
-                const entry = qualities[quality];
-                if (!entry.id) continue;
-                voices.push({
-                  voice: entry.translation,
-                  quality: entry.quality,
-                  id: entry.id,
-                  url: `https://to.reactglide.org/manifest/${entry.id}`,
-                  title: `${entry.translation} (${entry.quality}${entry.uhd ? ', 4K' : ''})`
-                });
+          function done() {
+            if (--pending === 0) {
+              if (collected.length) {
+                items = collected;
+                append(collected);
+                component.loading(false);
+              } else {
+                component.empty('❌ Нет валидных источников');
               }
             }
           }
 
-          const qualityFilter = Lampa.Storage.field('online_quality');
+          iframes.forEach(frame => {
+            const url = component.fixLink(frame);
+            network.native(url, iframeHtml => {
+              try {
+                const match = iframeHtml.match(/makePlayer\s*\(\s*({[\s\S]*?})\s*\)/);
+                if (!match) return done();
+                const jsonStr = sanitizeMakePlayerJson(match[1]);
+                const playerData = JSON.parse(jsonStr);
+                const source = playerData.source || {};
+                const audioNames = source.audio?.names || ['Без названия'];
+                const hls = source.hls;
+                const subs = source.cc || [];
 
-          items = voices
-            .filter(e => !qualityFilter || e.quality.includes(qualityFilter))
-            .map(e => ({
-              file: e.url,
-              title: e.title,
-              quality: e.quality,
-              info: e.voice,
-              timeline: '',
-              direct: true,
-              subtitles: [],
-              on: function (call) {
-                call(); // если нужно вызвать resolveStream(this.file);
+                if (hls) {
+                  const stream = {
+                    title: audioNames[0],
+                    file: hls,
+                    quality: 'auto',
+                    info: source.quality || '',
+                    subtitles: subs.map(s => ({ label: s.name, url: s.url })),
+                    direct: true,
+                    on: function (call) { call(); }
+                  };
+                  collected.push(stream);
+                }
+              } catch (e) {
+                console.warn('⚠️ Ошибка разбора makePlayer:', e.message);
               }
-            }));
-
-          if (items.length === 0) {
-            component.empty('❌ Потоки не найдены');
-          } else {
-            append(items);
-            component.loading(false);
-          }
-        }, function (a, c) {
-          component.empty(network.errorDecode(a, c));
-        }, false, {
-          method: 'GET',
-          dataType: 'text',
-          headers: headers
-        });
+              done();
+            }, err => {
+              console.warn('⚠️ iframe ошибка:', err);
+              done();
+            }, false, { method: 'GET', dataType: 'text' });
+          });
+        }, err => {
+          component.empty('Ошибка загрузки страницы: ' + err);
+        }, false, { method: 'GET', dataType: 'text' });
       }
 
       function append(items) {
-        if (!items || !items.length) {
-          component.empty('❌ Нет валидных потоков');
-          return;
-        }
-
         component.reset();
-        var viewed = Lampa.Storage.cache('online_view', 5000, []);
+        const viewed = Lampa.Storage.cache('online_view', 5000, []);
 
-        items.forEach(function (element) {
-          var hash = Lampa.Utils.hash(element.file + select_title);
-          var view = Lampa.Timeline.view(hash);
-          var item = Lampa.Template.get('online_mod', element);
-          var hash_file = Lampa.Utils.hash(select_title + element.title);
+        items.forEach(element => {
+          const hash = Lampa.Utils.hash(element.file + select_title);
+          const view = Lampa.Timeline.view(hash);
+          const item = Lampa.Template.get('online_mod', element);
+          const hash_file = Lampa.Utils.hash(select_title + element.title);
 
           element.timeline = view;
           item.append(Lampa.Timeline.render(view));
@@ -7232,7 +7210,7 @@
           item.on('hover:enter', function () {
             if (object.movie.id) Lampa.Favorite.add('history', object.movie, 100);
 
-            const first = {
+            const stream = {
               url: element.file,
               quality: component.renameQualityMap(element.quality),
               subtitles: element.subtitles,
@@ -7240,10 +7218,10 @@
               title: element.title
             };
 
-            Lampa.Player.play(first);
-            Lampa.Player.playlist([first]);
+            Lampa.Player.play(stream);
+            Lampa.Player.playlist([stream]);
 
-            if (viewed.indexOf(hash_file) === -1) {
+            if (viewed.indexOf(hash_file) == -1) {
               viewed.push(hash_file);
               item.append('<div class="torrent-item__viewed">' + Lampa.Template.get('icon_star', {}, true) + '</div>');
               Lampa.Storage.set('online_view', viewed);
@@ -7252,51 +7230,34 @@
 
           component.append(item);
           component.contextmenu({
-            item: item,
-            view: view,
-            viewed: viewed,
-            hash_file: hash_file,
-            file: function (call) {
-              call(element);
-            }
+            item, view, viewed, hash_file,
+            file: cb => cb(element)
           });
         });
 
         component.start(true);
       }
 
-      this.search = function (_object, kinopoisk_id) {
+      this.search = function (_object) {
         object = _object;
         select_title = object.search || object.movie.title;
 
-        searchKinoJump(select_title, function (results) {
+        searchKinoJump(select_title, results => {
           if (results.length) {
             component.loading(true);
             getPage(results[0].link);
           } else {
             component.emptyForQuery(select_title);
           }
-        }, function () {
+        }, () => {
           component.emptyForQuery(select_title);
         });
       };
 
-      this.extendChoice = function () {
-        return filter_data;
-      };
-
-      this.reset = function () {
-        items = [];
-      };
-
-      this.filter = function (type) {
-        var selected = Lampa.Storage.field('online_quality');
-        filtred = selected ? items.filter(e => e.quality == selected) : items;
-      };
-
-      this.destroy = function () {
-        network.clear();
-      };
+      this.extendChoice = () => ({});
+      this.reset = () => { items = []; };
+      this.filter = () => {};
+      this.destroy = () => network.clear();
     }
 
     function vibix(component, _object) {
@@ -14555,28 +14516,30 @@
 
     if (typeof window !== 'undefined' && window.location.href.includes('kinojump_debug.html')) {
       console.log('🔧 Режим отладки: регистрируем kinojump');
-      const fakeComponent = {
-        proxy: () => '',
-        reset: () => {},
-        proxyLink: (url) => url,
-        contextmenu: () => {},
-        start: () => {},
-        fixLink: (url) => url.startsWith('http') ? url : 'https://kinojump.com' + url,
-        append: (items) => console.log('append', items),
-        push: (item) => console.log('push', item),
-        loading: (bool) => console.log('loading', bool),
-        empty: (msg) => console.log('empty', msg),
-        emptyForQuery: (title) => console.log('no results for', title)
-      };
 
-      const instance = new kinojump(fakeComponent, {
-        search: 'Властелин колец',
-        movie: { title: 'Властелин колец', original_title: 'The Lord of the Rings' }
-      });
+      function fakeComponent() {
+        return {
+          proxy: () => '',
+          reset: () => {},
+          proxyLink: (url) => url,
+          contextmenu: () => {},
+          start: () => {},
+          fixLink: (url) => url.startsWith('http') ? url : 'https://kinojump.com' + url,
+          append: (items) => console.log('✅ append', items),
+          push: (item) => console.log('✅ push', item),
+          loading: (bool) => console.log(`🔄 Загрузка: ${bool}`),
+          empty: (msg) => console.log(`❌ Пусто: ${msg}`),
+          emptyForQuery: (title) => console.log(`❌ Нет результатов для: ${title}`)
+        };
+      }
 
       if (window.Lampa?.Platform?.sourceAdd) {
-        Lampa.Platform.sourceAdd('kinojump', instance);
+        Lampa.Platform.sourceAdd('kinojump', function () {
+          return new kinojump(fakeComponent());
+        });
       }
+
+      window.kinojump = kinojump;
     }
 
 })();
